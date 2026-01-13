@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>efi動画🎥生成</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=M+PLUS+Rounded+1c:wght@800;900&family=Noto+Sans+JP:wght@900&family=Sawarabi+Mincho&family=Kaushan+Script&display=swap');
+
+        :root {
+            --accent: #6366f1;
+        }
+
+        body {
+            background-color: #0c0c0e;
+            color: #eee;
+            font-family: 'Noto Sans JP', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+        }
+
+        .preview-pane {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: radial-gradient(circle at center, #1e1e2e 0%, #000 100%);
+            position: relative;
+        }
+
+        .video-shell {
+            position: relative;
+            padding: 10px;
+            background: #18181b;
+            border-radius: 54px;
+            box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.8);
+        }
+
+        .video-viewport {
+            width: 320px;
+            height: 568px;
+            background: #000;
+            border-radius: 44px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .media-bg-layer {
+            position: absolute;
+            inset: 0;
+            background-size: cover;
+            background-position: center;
+            transition: background-image 0.4s ease;
+            z-index: 1;
+        }
+
+        #particle-canvas {
+            position: absolute;
+            inset: 0;
+            z-index: 5;
+            pointer-events: none;
+        }
+
+        .text-overlay-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            pointer-events: none;
+            padding: 24px;
+        }
+
+        .text-content { will-change: transform, filter, opacity; margin: 4px 0; }
+
+        /* Effects Animation */
+        .fx-vortex { animation: vortex-anim 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) both; }
+        @keyframes vortex-anim {
+            0% { transform: rotate(-540deg) scale(0); opacity: 0; filter: blur(20px); }
+            100% { transform: rotate(0) scale(1); opacity: 1; filter: blur(0); }
+        }
+
+        .fx-flash { animation: flash-anim 0.4s ease-out; }
+        @keyframes flash-anim { 0% { filter: brightness(10) blur(10px); } 100% { filter: brightness(1) blur(0); } }
+
+        .fx-zoom-in { animation: zoom-in-anim 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes zoom-in-anim { 0% { transform: scale(0); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+        .fx-glitch { animation: glitch-anim 0.2s steps(2) infinite; }
+        @keyframes glitch-anim {
+            0% { transform: translate(4px, 0); filter: hue-rotate(90deg); }
+            50% { transform: translate(-4px, 0); filter: hue-rotate(180deg); }
+            100% { transform: translate(0, 0); }
+        }
+
+        /* Sidebar UI */
+        .sidebar {
+            width: 440px;
+            background: #141417;
+            border-left: 1px solid #27272a;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid #27272a;
+        }
+
+        .sidebar-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .config-card {
+            background: #1c1c21;
+            border: 1px solid #2d2d35;
+            border-radius: 16px;
+            padding: 18px;
+            margin-bottom: 20px;
+        }
+
+        .input-label {
+            display: block;
+            font-size: 11px;
+            font-weight: 800;
+            color: #71717a;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        input, select, textarea {
+            background: #09090b;
+            border: 1px solid #2d2d35;
+            color: #fff;
+            padding: 10px;
+            border-radius: 8px;
+            width: 100%;
+            font-size: 13px;
+            outline: none;
+        }
+
+        input[type="color"] { height: 40px; padding: 2px; cursor: pointer; }
+
+        .btn-play {
+            background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            color: white;
+            font-weight: 900;
+            padding: 14px 40px;
+            border-radius: 9999px;
+            transition: 0.3s;
+        }
+        .btn-play:hover { transform: translateY(-2px); filter: brightness(1.1); }
+
+        #progress-fill {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 220px;
+            height: 4px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        #progress-inner { height: 100%; width: 0%; background: #6366f1; }
+    </style>
+</head>
+<body>
+
+    <div class="preview-pane">
+        <div class="video-shell">
+            <div class="video-viewport">
+                <div id="bg-layer" class="media-bg-layer"></div>
+                <canvas id="particle-canvas"></canvas>
+                <div id="text-layer" class="text-overlay-layer"></div>
+            </div>
+            <div id="progress-fill"><div id="progress-inner"></div></div>
+        </div>
+
+        <div class="mt-8 flex gap-4">
+            <button id="play-btn" onclick="togglePlayback()" class="btn-play">
+                <span id="btn-label">再生する</span>
+            </button>
+            <button onclick="resetApp()" class="px-6 py-4 text-zinc-500 font-bold hover:text-white transition">リセット</button>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1 class="text-xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500">
+                efi動画🎥生成
+            </h1>
+        </div>
+
+        <div class="sidebar-scroll">
+            <div class="config-card">
+                <h3 class="input-label text-indigo-400 mb-4">全体設定</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="input-label">BGMアップロード</label>
+                        <input type="file" id="bgm-file-input" accept="audio/*" class="text-[10px]" onchange="loadUserBgm(this)">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="input-label">表示ルール</label>
+                            <select id="global-stack-mode">
+                                <option value="clear">シーン毎に消去</option>
+                                <option value="stack">累積して並べる</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="input-label">環境演出</label>
+                            <select id="global-particle" onchange="resetParticles()">
+                                <option value="fire" selected>リアルな火の粉🔥</option>
+                                <option value="none">なし</option>
+                                <option value="matrix">サイバー💻</option>
+                                <option value="snow">雪❄️</option>
+                                <option value="bubbles">泡🫧</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="editor-list"></div>
+
+            <button onclick="addScene()" class="w-full py-4 bg-zinc-800 rounded-xl font-bold hover:bg-zinc-700 transition mb-10">
+                ＋ シーンを追加
+            </button>
+        </div>
+    </div>
+
+<script>
+    let scenes = [
+        { text: "created by\nefice777", dur: 1800, size: 52, font: "Dela Gothic One", color: "#ffffff", useShadow: true, shadow: "#6366f1", fx: "fx-vortex", se: "explosion", img: "" },
+        { text: "Dynamic\nAudio", dur: 1800, size: 44, font: "Kaushan Script", color: "#facc15", useShadow: true, shadow: "#000000", fx: "fx-glitch", se: "rise", img: "" },
+        { text: "Unleash\nCreativity", dur: 2200, size: 48, font: "Noto Sans JP", color: "#ffffff", useShadow: true, shadow: "#f43f5e", fx: "fx-flash", se: "impact", img: "" }
+    ];
+
+    let current = 0, isPlaying = false, timer = null, particles = [];
+    let audioCtx, masterGain, userBgmAudio = null;
+
+    async function initAudio() {
+        if (audioCtx) return;
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        masterGain = audioCtx.createGain();
+        masterGain.connect(audioCtx.destination);
+    }
+
+    // Audio Engine
+    const SE = {
+        explosion: (t) => {
+            const osc = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            osc.frequency.setValueAtTime(150, t);
+            osc.frequency.exponentialRampToValueAtTime(0.01, t + 1.2);
+            g.gain.setValueAtTime(0.6, t);
+            g.gain.exponentialRampToValueAtTime(0.01, t + 1.2);
+            osc.connect(g); g.connect(masterGain);
+            osc.start(t); osc.stop(t + 1.2);
+        },
+        impact: (t) => {
+            const osc = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(100, t);
+            osc.frequency.exponentialRampToValueAtTime(40, t + 0.4);
+            g.gain.setValueAtTime(0.4, t);
+            g.gain.linearRampToValueAtTime(0, t + 0.4);
+            osc.connect(g); g.connect(masterGain);
+            osc.start(t); osc.stop(t + 0.4);
+        },
+        rise: (t) => {
+            const osc = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            osc.frequency.setValueAtTime(100, t);
+            osc.frequency.linearRampToValueAtTime(800, t + 0.8);
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(0.2, t + 0.8);
+            osc.connect(g); g.connect(masterGain);
+            osc.start(t); osc.stop(t + 0.8);
+        },
+        cyber_init: (t) => {
+            const osc = audioCtx.createOscillator();
+            osc.frequency.setValueAtTime(50, t);
+            osc.frequency.linearRampToValueAtTime(1200, t + 0.6);
+            const g = audioCtx.createGain();
+            g.gain.setValueAtTime(0.2, t);
+            g.gain.exponentialRampToValueAtTime(0.01, t + 0.6);
+            osc.connect(g); g.connect(masterGain);
+            osc.start(t); osc.stop(t + 0.6);
+        },
+        magic: (t) => {
+            for(let i=0; i<8; i++) {
+                const osc = audioCtx.createOscillator();
+                osc.frequency.setValueAtTime(1000 + i*300, t + i*0.04);
+                const g = audioCtx.createGain();
+                g.gain.setValueAtTime(0.1, t + i*0.04);
+                g.gain.exponentialRampToValueAtTime(0.01, t + i*0.04 + 0.2);
+                osc.connect(g); g.connect(masterGain);
+                osc.start(t + i*0.04); osc.stop(t + i*0.04 + 0.2);
+            }
+        },
+        glitch_se: (t) => {
+            for(let i=0; i<5; i++) {
+                const osc = audioCtx.createOscillator();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(Math.random()*2000 + 500, t + i*0.05);
+                const g = audioCtx.createGain();
+                g.gain.setValueAtTime(0.1, t + i*0.05);
+                g.gain.setValueAtTime(0, t + i*0.05 + 0.03);
+                osc.connect(g); g.connect(masterGain);
+                osc.start(t + i*0.05); osc.stop(t + i*0.05 + 0.03);
+            }
+        },
+        ding: (t) => {
+            const osc = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            osc.frequency.setValueAtTime(1200, t);
+            osc.frequency.exponentialRampToValueAtTime(800, t + 0.5);
+            g.gain.setValueAtTime(0.3, t);
+            g.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
+            osc.connect(g); g.connect(masterGain);
+            osc.start(t); osc.stop(t + 0.5);
+        },
+        sparkle: (t) => {
+            const osc = audioCtx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(2500, t);
+            osc.frequency.exponentialRampToValueAtTime(3000, t + 0.1);
+            const g = audioCtx.createGain();
+            g.gain.setValueAtTime(0.1, t);
+            g.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
+            osc.connect(g); g.connect(masterGain);
+            osc.start(t); osc.stop(t + 0.3);
+        }
+    };
+
+    function loadUserBgm(input) {
+        if (input.files[0]) {
+            const url = URL.createObjectURL(input.files[0]);
+            if (userBgmAudio) userBgmAudio.pause();
+            userBgmAudio = new Audio(url);
+            userBgmAudio.loop = true;
+        }
+    }
+
+    const canvas = document.getElementById('particle-canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 320; canvas.height = 568;
+
+    function resetParticles() { particles = []; }
+
+    function updateParticles() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const mode = document.getElementById('global-particle').value;
+        
+        if (mode !== 'none' && particles.length < 100) {
+            if (mode === 'fire') {
+                particles.push({ 
+                    x: Math.random()*canvas.width, y: canvas.height+10, 
+                    r: Math.random()*3+1, dy: -(Math.random()*3+1), dx: (Math.random()-0.5)*2,
+                    c: `rgb(255, ${Math.random()*150+50}, 0)`, 
+                    l: 1.0, glow: true 
+                });
+            } else if (mode === 'snow') {
+                particles.push({ x: Math.random()*canvas.width, y: -10, r: Math.random()*2, dy: Math.random()+0.5, c: '#fff', l: 1 });
+            } else if (mode === 'bubbles') {
+                particles.push({ x: Math.random()*canvas.width, y: canvas.height+10, r: Math.random()*4+2, dy: -(Math.random()*1.5+0.5), c: 'rgba(255,255,255,0.2)', l: 1 });
+            } else if (mode === 'matrix' && Math.random() < 0.2) {
+                particles.push({ x: Math.floor(Math.random()*20)*16, y: -20, txt: Math.floor(Math.random()*10), dy: Math.random()*5+5, c: '#0f0', type: 'm' });
+            }
+        }
+
+        particles.forEach((p, i) => {
+            p.y += p.dy;
+            if(p.dx) p.x += p.dx;
+            if(p.type === 'm') { 
+                ctx.font='12px monospace'; ctx.fillStyle=p.c; ctx.fillText(p.txt, p.x, p.y); 
+            } else { 
+                if(p.glow) { ctx.shadowBlur = 10; ctx.shadowColor = p.c; }
+                ctx.globalAlpha = p.l || 1;
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fillStyle=p.c; ctx.fill();
+                ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+                if(p.l) p.l -= 0.015;
+            }
+            if (p.y > canvas.height + 50 || p.y < -50 || (p.l && p.l <= 0)) particles.splice(i, 1);
+        });
+        requestAnimationFrame(updateParticles);
+    }
+
+    function render() {
+        const list = document.getElementById('editor-list');
+        list.innerHTML = '';
+        scenes.forEach((s, i) => {
+            const card = document.createElement('div');
+            card.className = 'config-card';
+            card.innerHTML = `
+                <div class="flex justify-between items-center mb-4">
+                    <span class="text-[10px] font-black text-indigo-400">シーン #${i+1}</span>
+                    <button onclick="deleteScene(${i})" class="text-zinc-600 hover:text-red-500 text-[10px]">削除</button>
+                </div>
+                <div class="space-y-4">
+                    <textarea oninput="scenes[${i}].text=this.value">${s.text}</textarea>
+                    
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="input-label">フォント</label>
+                            <select onchange="scenes[${i}].font=this.value; if(current==${i}) updatePreview()">
+                                <option value="Dela Gothic One" ${s.font.includes('Dela')?'selected':''}>デラゴシック</option>
+                                <option value="Noto Sans JP" ${s.font.includes('Noto')?'selected':''}>角ゴシック</option>
+                                <option value="M PLUS Rounded 1c" ${s.font.includes('Rounded')?'selected':''}>丸ゴシック</option>
+                                <option value="Sawarabi Mincho" ${s.font.includes('Mincho')?'selected':''}>明朝体</option>
+                                <option value="Kaushan Script" ${s.font.includes('Kaushan')?'selected':''}>筆記体</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="input-label">背景画像</label>
+                            <input type="file" accept="image/*" class="text-[10px]" onchange="uploadImage(${i}, this)">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="input-label">文字色</label>
+                            <input type="color" value="${s.color}" oninput="scenes[${i}].color=this.value; if(current==${i}) updatePreview()">
+                        </div>
+                        <div>
+                            <label class="input-label flex justify-between">
+                                影 / Glow
+                                <span class="flex items-center gap-1">
+                                    <input type="checkbox" style="width:12px; height:12px" ${s.useShadow?'checked':''} onchange="scenes[${i}].useShadow=this.checked; if(current==${i}) updatePreview()">
+                                    <span class="normal-case text-[9px]">ON</span>
+                                </span>
+                            </label>
+                            <input type="color" value="${s.shadow}" oninput="scenes[${i}].shadow=this.value; if(current==${i}) updatePreview()">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="input-label">出現演出</label>
+                            <select onchange="scenes[${i}].fx=this.value">
+                                <option value="fx-vortex" ${s.fx=='fx-vortex'?'selected':''}>渦巻き</option>
+                                <option value="fx-flash" ${s.fx=='fx-flash'?'selected':''}>フラッシュ</option>
+                                <option value="fx-zoom-in" ${s.fx=='fx-zoom-in'?'selected':''}>ズーム</option>
+                                <option value="fx-glitch" ${s.fx=='fx-glitch'?'selected':''}>グリッチ</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="input-label">効果音 (SE)</label>
+                            <select onchange="scenes[${i}].se=this.value">
+                                <option value="explosion" ${s.se=='explosion'?'selected':''}>爆発</option>
+                                <option value="impact" ${s.se=='impact'?'selected':''}>重低音</option>
+                                <option value="rise" ${s.se=='rise'?'selected':''}>上昇音</option>
+                                <option value="cyber_init" ${s.se=='cyber_init'?'selected':''}>サイバー</option>
+                                <option value="magic" ${s.se=='magic'?'selected':''}>魔法</option>
+                                <option value="glitch_se" ${s.se=='glitch_se'?'selected':''}>グリッチ</option>
+                                <option value="ding" ${s.se=='ding'?'selected':''}>通知音</option>
+                                <option value="sparkle" ${s.se=='sparkle'?'selected':''}>キラキラ</option>
+                                <option value="none" ${s.se=='none'?'selected':''}>なし</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="input-label">サイズ (${s.size}px)</label>
+                        <input type="range" min="10" max="100" value="${s.size}" oninput="scenes[${i}].size=this.value; if(current==${i}) updatePreview()">
+                    </div>
+                </div>
+            `;
+            list.appendChild(card);
+        });
+    }
+
+    function addScene() { 
+        scenes.push({ text: "NEW SCENE", dur: 1800, size: 40, font: "Noto Sans JP", color: "#ffffff", useShadow: true, shadow: "#6366f1", fx: "fx-zoom-in", se: "sparkle", img: "" }); 
+        render(); 
+    }
+    
+    function deleteScene(i) { if(scenes.length > 1) { scenes.splice(i,1); render(); } }
+    
+    function uploadImage(i, input) {
+        if(input.files[0]) {
+            const r = new FileReader();
+            r.onload = e => { scenes[i].img = e.target.result; if(current === i) updatePreview(); };
+            r.readAsDataURL(input.files[0]);
+        }
+    }
+
+    function updatePreview() {
+        const stackMode = document.getElementById('global-stack-mode').value;
+        const container = document.getElementById('text-layer');
+        const bgLayer = document.getElementById('bg-layer');
+        const s = scenes[current];
+        if(!s) return;
+
+        bgLayer.style.backgroundImage = s.img ? `url(${s.img})` : 'none';
+        if (stackMode === 'clear') container.innerHTML = '';
+
+        const el = document.createElement('div');
+        el.className = `text-content ${s.fx}`;
+        
+        const shadowStyle = s.useShadow 
+            ? `text-shadow: 0 0 10px ${s.shadow}, 0 0 20px ${s.shadow};` 
+            : `text-shadow: none;`;
+
+        el.innerHTML = `
+            <div style="font-family:'${s.font}'; font-size:${s.size}px; color:${s.color}; font-weight:900; line-height:1.2; ${shadowStyle}">
+                ${s.text.replace(/\n/g,'<br>')}
+            </div>`;
+        container.appendChild(el);
+
+        if(isPlaying && SE[s.se]) SE[s.se](audioCtx.currentTime);
+    }
+
+    function togglePlayback() {
+        initAudio();
+        isPlaying = !isPlaying;
+        if(isPlaying) {
+            document.getElementById('btn-label').innerText = "一時停止";
+            if (userBgmAudio) userBgmAudio.play();
+            playLoop();
+        } else {
+            document.getElementById('btn-label').innerText = "再生する";
+            if (userBgmAudio) userBgmAudio.pause();
+            clearTimeout(timer);
+        }
+    }
+
+    function playLoop() {
+        if(!isPlaying) return;
+        updatePreview();
+        const d = scenes[current].dur || 1800;
+        const p = document.getElementById('progress-inner');
+        p.style.width = '0%';
+        p.animate([{width:'0%'},{width:'100%'}], {duration: d, easing: 'linear'});
+        timer = setTimeout(() => {
+            current = (current + 1) % scenes.length;
+            if (current === 0) document.getElementById('text-layer').innerHTML = '';
+            playLoop();
+        }, d);
+    }
+
+    function resetApp() { 
+        current = 0; 
+        if(isPlaying) togglePlayback(); 
+        document.getElementById('text-layer').innerHTML = '';
+        if(userBgmAudio) userBgmAudio.currentTime = 0;
+        updatePreview(); 
+    }
+
+    window.onload = () => { render(); updatePreview(); updateParticles(); };
+</script>
+</body>
+</html>
